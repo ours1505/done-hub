@@ -4,10 +4,7 @@ permissions:
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "*"
-      - "!*-alpha*"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -16,41 +13,48 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
       - uses: actions/setup-node@v3
         with:
           node-version: 22.4.1
+
       - name: Build Frontend
         env:
           CI: ""
         run: |
           cd web
           yarn install
-          VITE_APP_VERSION=$(git describe --tags) yarn run build
+          VITE_APP_VERSION=$(git describe --tags --dirty --always) yarn run build
           cd ..
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: "1.25.0"
+
       - name: Build Backend (amd64)
         run: |
           go mod download
-          go build -ldflags "-s -w -X 'done-hub/common/config.Version=$(git describe --tags)' -extldflags '-static'" -o done-hub
+          go build -ldflags "-s -w -X 'done-hub/common/config.Version=manual-${GITHUB_RUN_NUMBER}' -extldflags '-static'" -o done-hub
 
       - name: Build Backend (arm64)
         run: |
           sudo rm /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update
-          sudo apt-get install gcc-aarch64-linux-gnu
-          CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X 'done-hub/common/config.Version=$(git describe --tags)' -extldflags '-static'" -o done-hub-arm64
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
+            go build -ldflags "-s -w -X 'done-hub/common/config.Version=manual-${GITHUB_RUN_NUMBER}' -extldflags '-static'" \
+            -o done-hub-arm64
 
       - name: Release
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: manual-${{ github.run_number }}
+          name: Manual Release #${{ github.run_number }}
+          draft: true
+          generate_release_notes: true
           files: |
             done-hub
             done-hub-arm64
-          draft: true
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GT_Token }}
